@@ -1,16 +1,35 @@
 package main
 
 import (
-    "fmt"
+    "log"
     "net/http"
+    "net/http/httputil"
+    "net/url"
 )
 
-func handler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintln(w, "Hello from Docker Go server!")
-}
-
 func main() {
-    http.HandleFunc("/", handler)
-    fmt.Println("Server running on port 8080...")
-    http.ListenAndServe(":8080", nil)
+    // target: Google
+    target, err := url.Parse("https://www.google.com")
+    if err != nil {
+        log.Fatal("failed to parse target:", err)
+    }
+
+    proxy := httputil.NewSingleHostReverseProxy(target)
+
+    // all path /、/search、/url、/img、……
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        // change http request to google
+        r.Host = target.Host
+        r.URL.Scheme = target.Scheme
+        r.URL.Host = target.Host
+
+        log.Println("Proxying:", r.Method, r.URL.String())
+        proxy.ServeHTTP(w, r)
+    })
+
+    addr := ":8080"
+    log.Println("Google proxy listening on", addr)
+    if err := http.ListenAndServe(addr, nil); err != nil {
+        log.Fatal(err)
+    }
 }
