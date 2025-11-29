@@ -64,18 +64,18 @@ func googleSearchRelayHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer resp.Body.Close()
 
-    // 把 Google 的响应 header 转发给客户端
+
     for k, vv := range resp.Header {
-        // 简单粗暴地整体拷贝，大部分情况下够用
+
         for _, v := range vv {
             w.Header().Add(k, v)
         }
     }
 
-    // 写入相同的状态码
+
     w.WriteHeader(resp.StatusCode)
 
-    // 把 body 直接拷贝过去
+    // copy body
     if _, err := io.Copy(w, resp.Body); err != nil {
         log.Println("failed to copy body:", err)
     }
