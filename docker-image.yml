@@ -1,3 +1,0 @@
-services:
-  web:
-    image: go-app:1.0.1
