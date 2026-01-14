@@ -10,28 +10,26 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - esdata:/usr/share/elasticsearch/data   # permanent ES data
 
   web:
     image: go-app:0.1
     build:
       context: .
       dockerfile: Web/Dockerfile
-
     ports:
       - "8080:8080"
-
     volumes:
       - ./:/app
     working_dir: /app
-
     command: go run ./Web/main.go
-
     depends_on:
       - es
-
-    # 如果你之后在 Go 里改成从环境变量读 ES 地址，可以用这个：
-    # environment:
-    #   - ELASTICSEARCH_URL=http://es:9200
-
+    environment:
+      - ELASTICSEARCH_URL=http://es:9200
     stdin_open: true
     tty: true
+
+volumes:
+  esdata:   # named volume
