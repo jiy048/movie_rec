@@ -1,35 +1,148 @@
 services:
-  es:
-    image: es:0.1
+  # ---------------------------
+  # Elasticsearch cluster (7.9.3, from your DB/Dockerfile)
+  # ---------------------------
+  es1:
+    image: es1:0.1
     build:
       context: .
       dockerfile: DB/Dockerfile
-    ports:
-      - "9200:9200"
     environment:
-      - discovery.type=single-node
+      - cluster.name=movie-rec #same name to keep required es services in the same cluster 
+      - node.name=es1
+      - node.master=true
+      - node.data=true
+      - node.ingest=true
+      - discovery.seed_hosts=es1,es2 #discover nodes in the same cluster, default port: 9300
+      - cluster.initial_master_nodes=es1,es2 
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     volumes:
-      - esdata:/usr/share/elasticsearch/data   # permanent ES data
+      - esdata1:/usr/share/elasticsearch/data
+    networks: [acnet]
 
-  web:
-    image: go-app:0.1
+  es2:
+    image: es2:0.1
+    build:
+      context: .
+      dockerfile: DB/Dockerfile
+    environment:
+      - cluster.name=movie-rec
+      - node.name=es2
+      - node.master=true
+      - node.data=true
+      - node.ingest=true
+      - discovery.seed_hosts=es1,es2
+      - cluster.initial_master_nodes=es1,es2
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - esdata2:/usr/share/elasticsearch/data
+    networks: [acnet]
+
+  # Coordinating-only node: no master/data/ingest
+  es-coord:
+    image: es-coord:0.1
+    build:
+      context: .
+      dockerfile: DB/Dockerfile
+    environment:
+      - cluster.name=movie-rec
+      - node.name=es-coord
+      - node.master=false
+      - node.data=false
+      - node.ingest=false
+      - discovery.seed_hosts=es1,es2
+      - cluster.initial_master_nodes=es1,es2
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    depends_on:
+      - es1
+      - es2
+    ports:
+      - "9200:9200" # expose coordinating node for host debugging
+    networks: [acnet]
+
+  # one-off job: create index mapping + seed docs
+  es-data-ingest:
+    image: curlimages/curl:8.5.0
+    depends_on:
+      - es-coord
+    volumes:
+      - ./Scripts/es-data-ingest.sh:/es_data_ingest.sh:ro
+    entrypoint: ["/bin/sh", "/es_data_ingest.sh"]
+    networks: [acnet]
+
+  # ---------------------------
+  # Go web servers (3 instances)
+  # ---------------------------
+  web1:
+    image: web1:0.1
     build:
       context: .
       dockerfile: Web/Dockerfile
-    ports:
-      - "8080:8080"
     volumes:
       - ./:/app
     working_dir: /app
-    command: go run ./Web/main.go
+    command: ["go", "run", "./Web/main.go"]
     depends_on:
-      - es
+      - es-data-ingest
     environment:
-      - ELASTICSEARCH_URL=http://es:9200
-    stdin_open: true
-    tty: true
+      - PORT=8080
+      - ES_URLS=http://es-coord:9200
+    networks: [acnet]
+
+  web2:
+    image: web2:0.1
+    build:
+      context: .
+      dockerfile: Web/Dockerfile
+    volumes:
+      - ./:/app
+    working_dir: /app
+    command: ["go", "run", "./Web/main.go"]
+    depends_on:
+      - es-data-ingest
+    environment:
+      - PORT=8080
+      - ES_URLS=http://es-coord:9200
+    networks: [acnet]
+
+  web3:
+    image: web3:0.1
+    build:
+      context: .
+      dockerfile: Web/Dockerfile
+    volumes:
+      - ./:/app
+    working_dir: /app
+    command: ["go", "run", "./Web/main.go"]
+    depends_on:
+      - es-data-ingest
+    environment:
+      - PORT=8080
+      - ES_URLS=http://es-coord:9200
+    networks: [acnet]
+
+  # ---------------------------
+  # Nginx: round-robin to web1/2/3
+  # ---------------------------
+  lb:
+    build:
+      context: ./LB
+      dockerfile: Dockerfile
+    image: movie-rec-lb:0.1
+    depends_on:
+      - web1
+      - web2
+      - web3
+    ports:
+      - "8080:80"  # single entry for browser/curl
+    networks: [acnet]
+
+networks:
+  acnet:
 
 volumes:
-  esdata:   # named volume
+  esdata1:
+  esdata2:
